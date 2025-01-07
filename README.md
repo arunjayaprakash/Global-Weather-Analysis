@@ -1,11 +1,12 @@
-# Climate Data Engineering Project
+# Climate Analysis
 
-This project demonstrates a data engineering pipeline for processing climate data from NOAA (National Oceanic and Atmospheric Administration) using Apache Kafka for real-time data streaming.
+Data pipeline for processing climate data from NOAA using Apache Kafka for real-time data streaming and Apache Spark for stream processing.
 
 ## Project Architecture
 
 ```
-NOAA API → Kafka Producer → Kafka Topic → Kafka Consumer → (Future: Processing & Storage)
+NOAA API → Kafka Producer → Kafka Topic → Spark Streaming → Console Output (Future: Delta Lake)
+                                      ↳ Kafka Consumer (monitoring)
 ```
 
 ## Prerequisites
@@ -13,6 +14,7 @@ NOAA API → Kafka Producer → Kafka Topic → Kafka Consumer → (Future: Proc
 - Python 3.x
 - Java 8 or newer
 - Apache Kafka 3.9.0
+- Apache Spark 3.5.0
 - NOAA API key
 
 ## Installation & Setup
@@ -26,7 +28,7 @@ NOAA API → Kafka Producer → Kafka Topic → Kafka Consumer → (Future: Proc
 .\bin\windows\kafka-storage.bat random-uuid
 ```
 
-4. Format storage directory (replace YOUR_UUID with generated UUID):
+4. Format storage directory:
 ```bash
 .\bin\windows\kafka-storage.bat format -t YOUR_UUID -c config\kraft\server.properties
 ```
@@ -36,26 +38,42 @@ NOAA API → Kafka Producer → Kafka Topic → Kafka Consumer → (Future: Proc
 .\bin\windows\kafka-server-start.bat config\kraft\server.properties
 ```
 
-### 2. Python Environment Setup
+### 2. Spark Setup (Windows)
+
+1. Set up Hadoop environment:
+   - Create directory `C:\hadoop\bin`
+   - Download winutils.exe and hadoop.dll from https://github.com/cdarlint/winutils
+   - Place these files in `C:\hadoop\bin`
+   - Set environment variable: `HADOOP_HOME=C:\hadoop`
+
+2. Create Spark temp directory:
+   ```bash
+   mkdir C:\tmp\spark-temp
+   ```
+
+### 3. Python Environment Setup
 
 Install required Python packages:
 ```bash
-pip install kafka-python requests
+pip install kafka-python requests pyspark findspark
 ```
 
-### 3. NOAA API Key
+### 4. NOAA API Key
 1. Request an API key from [NOAA's website](https://www.ncdc.noaa.gov/cdo-web/webservices/v2#gettingStarted)
-2. Store the key securely (you'll need it for the producer)
+2. Store the key securely
 
 ## Project Components
 
-### 1. Test Setup
-- `test_producer.py`: Basic producer that sends test messages
-- `test_consumer.py`: Basic consumer that receives and displays test messages
-
-### 2. NOAA Data Pipeline
+### 1. Data Ingestion
 - `noaa_producer.py`: Fetches temperature data from NOAA API and produces to Kafka
-- `noaa_consumer.py`: Consumes temperature data and displays it in a formatted way
+- `noaa_prod_synthetic.py`: Generates synthetic weather data for testing
+- `noaa_consumer.py`: Monitors raw temperature data from Kafka
+
+### 2. Stream Processing
+- `noaa_spark_processor.py`: Spark Streaming job that processes weather data in real-time
+  - Performs hourly temperature aggregations by station
+  - Calculates regional temperature averages using lat/long grids
+  - (Future) Writes processed data to Delta Lake
 
 ### Topics
 1. Test topic:
@@ -72,39 +90,32 @@ pip install kafka-python requests
 
 1. Start Kafka server (see Kafka Setup section)
 
-2. Run the NOAA data pipeline:
-   - Start consumer:
-     ```bash
-     python noaa_consumer.py
-     ```
-   - In a separate terminal, start producer:
-     ```bash
-     python noaa_producer.py
-     ```
+2. Run the data pipeline:
+   ```bash
+   # Terminal 1: Start the producer (real or synthetic)
+   python src/noaa/noaa_prod_synthetic.py
+   
+   # Terminal 2: Start Spark processor (optional: start consumer for monitoring)
+   python src/spark/noaa_spark_processor.py
+   ```
 
 ## Current Features
 
 - Real-time data streaming from NOAA API
+- Synthetic data generation for testing
 - Temperature data collection from multiple weather stations
-- Last 30 days of historical data
-- Temperature conversion (Celsius to Fahrenheit)
+- Real-time stream processing with Spark:
+  - Hourly temperature statistics (avg, max, min)
+  - Geographic temperature clustering
 - Structured message format with geographical data
 - Basic error handling and rate limiting
 
 ## Next Steps
 
-1. Add data transformation using Apache Spark
-2. Implement data storage solution
-3. Add data quality checks
-4. Create visualization dashboard
-5. Implement proper error handling and logging
-6. Add more NOAA data types (precipitation, wind, etc.)
-
-## Notes
-
-- The project uses Kafka KRaft instead of ZooKeeper for metadata management
-- Current implementation focuses on temperature data (TMAX, TMIN)
-- Rate limiting is implemented to respect NOAA API limits
+1. Implement Delta Lake storage for processed data
+2. Add data quality checks, error handling etc
+3. Dask or Spark for some kind of analysis
+5. Viz. Dashboard or ML route? TBD
 
 ## Architecture Decisions
 
@@ -118,3 +129,16 @@ pip install kafka-python requests
    - Simpler architecture
    - Future-proof (ZooKeeper being phased out)
    - No external dependencies
+
+3. **Spark Streaming vs Plain Kafka Consumer**: Chose Spark for:
+   - Parallel processing capability
+   - Built-in windowing and aggregation functions
+   - Scalability for large data volumes
+   - Integration with Delta Lake storage
+
+## Notes
+
+- The project uses Kafka KRaft instead of ZooKeeper for metadata management
+- Current implementation focuses on temperature data (TMAX)
+- Spark processing uses 5-minute windows for aggregations
+- Rate limiting is implemented to respect NOAA API limits
